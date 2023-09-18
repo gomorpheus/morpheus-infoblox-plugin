@@ -431,14 +431,15 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 	 * @param addList
 	 */
 	void addMissingZones(NetworkPoolServer poolServer, Collection addList) {
-		List<NetworkDomain> missingZonesList = addList?.collect { Map add ->
-			NetworkDomain networkDomain = new NetworkDomain()
-			networkDomain.externalId = add.'_ref'
-			networkDomain.name = NetworkUtility.getFriendlyDomainName(add.fqdn as String)
-			networkDomain.fqdn = NetworkUtility.getFqdnDomainName(add.fqdn as String)
-			networkDomain.refSource = 'integration'
-			networkDomain.zoneType = 'Authoritative'
-			return networkDomain
+		List<NetworkDomain> missingZonesList = addList?.findAll{NetworkUtility.getFriendlyDomainName(it.fqdn as String)}?.collect { Map add ->
+				//won't sync root zone or zones with emptry fqdn
+				NetworkDomain networkDomain = new NetworkDomain()
+				networkDomain.externalId = add.'_ref'
+				networkDomain.name = NetworkUtility.getFriendlyDomainName(add.fqdn as String)
+				networkDomain.fqdn = NetworkUtility.getFqdnDomainName(add.fqdn as String)
+				networkDomain.refSource = 'integration'
+				networkDomain.zoneType = 'Authoritative'
+				return networkDomain
 		}
 		log.info("Adding Missing Zone Records! ${missingZonesList}")
 		morpheus.network.domain.create(poolServer.integration.id, missingZonesList).blockingGet()
