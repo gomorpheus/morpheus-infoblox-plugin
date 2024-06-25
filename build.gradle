@@ -92,6 +92,11 @@ java {
 	withJavadocJar()
 }
 
+task copyRuntimeLibs(type: Copy) {
+	into "lib"
+	from project.configurations.runtimeClasspath - project.configurations.provided
+}
+
 task morpheusJavaDoc(type: Javadoc) {
 	source = sourceSets.main.allJava
 	title = "Morpheus Core Docs"
