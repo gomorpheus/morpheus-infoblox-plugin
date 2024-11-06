@@ -216,6 +216,10 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 				if(poolServer.configMap?.extraAttributes) {
 					extraAttributes = generateExtraAttributes(poolServer,[username: record.createdBy?.username, userId: record.createdBy?.id, dateCreated: MorpheusUtils.formatDate(new Date()) ])
 				}
+				def dnsView
+				if(poolServer.configMap?.dnsView) {
+					dnsView = poolServer.configMap?.dnsView
+				}
 
 				switch(recordType) {
 					case 'A':
@@ -224,6 +228,9 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 							name:fqdn,
 							ipv4addr: record.content
 						]
+						if (dnsView) {
+							body.view = dnsView
+						}
 						if(extraAttributes) {
 							body.extattrs = extraAttributes
 						}
@@ -237,6 +244,9 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 							name:fqdn,
 							ipv6addr: record.content
 						]
+						if (dnsView) {
+							body.view = dnsView
+						}
 						if(extraAttributes) {
 							body.extattrs = extraAttributes
 						}
@@ -250,6 +260,9 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 							name:fqdn,
 							canonical: record.content
 						]
+						if (dnsView) {
+							body.view = dnsView
+						}
 						if(extraAttributes) {
 							body.extattrs = extraAttributes
 						}
@@ -263,6 +276,9 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 							name:fqdn,
 							text: record.content
 						]
+						if (dnsView) {
+							body.view = dnsView
+						}
 						if(extraAttributes) {
 							body.extattrs = extraAttributes
 						}
@@ -275,6 +291,9 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 							name:fqdn,
 							mail_exchanger: record.content
 						]
+						if (dnsView) {
+							body.view = dnsView
+						}
 						if(extraAttributes) {
 							body.extattrs = extraAttributes
 						}
@@ -1397,12 +1416,13 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 				new OptionType(code: 'infoblox.throttleRate', name: 'Throttle Rate', inputType: OptionType.InputType.NUMBER, defaultValue: 0, fieldName: 'serviceThrottleRate', fieldLabel: 'Throttle Rate', fieldContext: 'domain', displayOrder: 4),
 				new OptionType(code: 'infoblox.ignoreSsl', name: 'Ignore SSL', inputType: OptionType.InputType.CHECKBOX, defaultValue: 0, fieldName: 'ignoreSsl', fieldLabel: 'Disable SSL SNI Verification', fieldContext: 'domain', displayOrder: 5),
 				new OptionType(code: 'infoblox.inventoryExisting', name: 'Inventory Existing', inputType: OptionType.InputType.CHECKBOX, defaultValue: 0, fieldName: 'inventoryExisting', fieldLabel: 'Inventory Existing', fieldContext: 'config', displayOrder: 6),
-				new OptionType(code: 'infoblox.networkFilter', name: 'Network Filter', inputType: OptionType.InputType.TEXT, fieldName: 'networkFilter', fieldLabel: 'Network Filter', fieldContext: 'domain', displayOrder: 7),
-				new OptionType(code: 'infoblox.zoneFilter', name: 'Zone Filter', inputType: OptionType.InputType.TEXT, fieldName: 'zoneFilter', fieldLabel: 'Zone Filter', fieldContext: 'domain', displayOrder: 8),
-				new OptionType(code: 'infoblox.tenantMatch', name: 'Tenant Match Attribute', inputType: OptionType.InputType.TEXT, fieldName: 'tenantMatch', fieldLabel: 'Tenant Match Attribute', fieldContext: 'domain', displayOrder: 9),
-				new OptionType(code: 'infoblox.ipMode', name: 'IP Mode', inputType: OptionType.InputType.SELECT, fieldName: 'serviceMode', fieldLabel: 'IP Mode', fieldContext: 'domain', optionSource: 'infobloxModeTypeList' , displayOrder: 10),
-				new OptionType(code: 'infoblox.extraAttributes', name: 'Extra Attributes', inputType: OptionType.InputType.TEXTAREA, fieldName: 'extraAttributes', fieldLabel: 'Extra Attributes', fieldContext: 'config', displayOrder: 11, helpText: "Accepts a JSON input of custom attributes that can be saved on Host Record in Infoblox. These Must be first defined as extra attributes in Infoblox and values can be injected for the user creating the record and the date of assignment. The available injectable attributes are: userId, username, and dateCreated. They can be injected with <%=%>.")
-		]
+				new OptionType(code: 'infoblox.dnsView', name: 'DNS view', inputType: OptionType.InputType.TEXT, fieldName: 'dnsView', fieldLabel: 'DNS view', fieldContext: 'config', displayOrder: 7, helpText: 'Specifies the DNS view in which the zone exists.'),
+				new OptionType(code: 'infoblox.networkFilter', name: 'Network Filter', inputType: OptionType.InputType.TEXT, fieldName: 'networkFilter', fieldLabel: 'Network Filter', fieldContext: 'domain', displayOrder: 8),
+				new OptionType(code: 'infoblox.zoneFilter', name: 'Zone Filter', inputType: OptionType.InputType.TEXT, fieldName: 'zoneFilter', fieldLabel: 'Zone Filter', fieldContext: 'domain', displayOrder: 9),
+				new OptionType(code: 'infoblox.tenantMatch', name: 'Tenant Match Attribute', inputType: OptionType.InputType.TEXT, fieldName: 'tenantMatch', fieldLabel: 'Tenant Match Attribute', fieldContext: 'domain', displayOrder: 10),
+				new OptionType(code: 'infoblox.ipMode', name: 'IP Mode', inputType: OptionType.InputType.SELECT, fieldName: 'serviceMode', fieldLabel: 'IP Mode', fieldContext: 'domain', optionSource: 'infobloxModeTypeList' , displayOrder: 11),
+				new OptionType(code: 'infoblox.extraAttributes', name: 'Extra Attributes', inputType: OptionType.InputType.TEXTAREA, fieldName: 'extraAttributes', fieldLabel: 'Extra Attributes', fieldContext: 'config', displayOrder: 12, helpText: "Accepts a JSON input of custom attributes that can be saved on Host Record in Infoblox. These Must be first defined as extra attributes in Infoblox and values can be injected for the user creating the record and the date of assignment. The available injectable attributes are: userId, username, and dateCreated. They can be injected with <%=%>.")
+				]
 	}
 
 	@Override
