@@ -29,7 +29,7 @@ import groovy.text.SimpleTemplateEngine
 import groovy.util.logging.Slf4j
 import io.reactivex.rxjava3.core.Completable
 import io.reactivex.rxjava3.core.Single
-import io.reactivex.rxjava3.core.Scheduler
+import io.reactivex.rxjava3.schedulers.Schedulers
 import org.apache.http.entity.ContentType
 import io.reactivex.rxjava3.core.Observable
 
@@ -115,6 +115,8 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 			return rtn //
 		}
 		HttpApiClient infobloxClient = new HttpApiClient()
+		def networkProxy = morpheusContext.services.setting.getGlobalNetworkProxy()
+		infobloxClient.networkProxy = networkProxy
 		try {
 			def apiUrl = cleanServiceUrl(poolServer.serviceUrl)
 			boolean hostOnline = false
@@ -122,7 +124,7 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 				def apiUrlObj = new URL(apiUrl)
 				def apiHost = apiUrlObj.host
 				def apiPort = apiUrlObj.port > 0 ? apiUrlObj.port : (apiUrlObj?.protocol?.toLowerCase() == 'https' ? 443 : 80)
-				hostOnline = ConnectionUtils.testHostConnectivity(apiHost, apiPort, true, true, null)
+				hostOnline = ConnectionUtils.testHostConnectivity(apiHost, apiPort, true, true, networkProxy)
 			} catch(e) {
 				log.error("Error parsing URL {}", apiUrl, e)
 			}
@@ -195,6 +197,7 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 	ServiceResponse<NetworkDomainRecord> createRecord(AccountIntegration integration, NetworkDomainRecord record, Map opts) {
 		ServiceResponse<NetworkDomainRecord> rtn = new ServiceResponse<>()
 		HttpApiClient client = new HttpApiClient()
+		client.networkProxy = morpheusContext.services.setting.getGlobalNetworkProxy()
 		def poolServer = morpheus.network.getPoolServerByAccountIntegration(integration).blockingGet()
 
 		try {
@@ -328,6 +331,7 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 				morpheus.network.getPoolServerByAccountIntegration(integration).doOnSuccess({ poolServer ->
 					def serviceUrl = cleanServiceUrl(poolServer.serviceUrl)
 					HttpApiClient client = new HttpApiClient()
+					client.networkProxy = morpheusContext.services.setting.getGlobalNetworkProxy()
 					try {
 						def apiPath
 
@@ -364,12 +368,14 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 		log.debug("refreshNetworkPoolServer: {}", poolServer.dump())
 		HttpApiClient infobloxClient = new HttpApiClient()
 		infobloxClient.throttleRate = poolServer.serviceThrottleRate
+		def networkProxy = morpheusContext.services.setting.getGlobalNetworkProxy()
+		infobloxClient.networkProxy = networkProxy
 		try {
 			def apiUrl = cleanServiceUrl(poolServer.serviceUrl)
 			def apiUrlObj = new URL(apiUrl)
 			def apiHost = apiUrlObj.host
 			def apiPort = apiUrlObj.port > 0 ? apiUrlObj.port : (apiUrlObj?.protocol?.toLowerCase() == 'https' ? 443 : 80)
-			def hostOnline = ConnectionUtils.testHostConnectivity(apiHost, apiPort, true, true, null)
+			def hostOnline = ConnectionUtils.testHostConnectivity(apiHost, apiPort, true, true, networkProxy)
 
 			log.debug("online: {} - {}", apiHost, hostOnline)
 
@@ -418,6 +424,7 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 			log.info("listZoneResults: {}", listResults)
 			if (listResults.success && listResults.data != null) {
 				List apiItems = listResults.data as List<Map>
+				apiItems = apiItems.findAll{it.fqdn != '.' && it.fqdn}
 				Observable<NetworkDomainIdentityProjection> domainRecords = morpheus.network.domain.listIdentityProjections(poolServer.integration.id)
 
 				SyncTask<NetworkDomainIdentityProjection,Map,NetworkDomain> syncTask = new SyncTask(domainRecords, apiItems as Collection<Map>)
@@ -776,6 +783,7 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 	@Override
 	ServiceResponse<NetworkPoolIp> createHostRecord(NetworkPoolServer poolServer, NetworkPool networkPool, NetworkPoolIp networkPoolIp, NetworkDomain domain = null, Boolean createARecord = false, Boolean createPtrRecord = false) {
 		HttpApiClient client = new HttpApiClient();
+		client.networkProxy = morpheusContext.services.setting.getGlobalNetworkProxy()
 		try {
 			def serviceUrl = cleanServiceUrl(poolServer.serviceUrl)
 			def apiPath = getServicePath(poolServer.serviceUrl) + 'record:host' //networkPool.externalId
@@ -792,38 +800,40 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 					shortHostname = hostname.substring(0,suffixIndex)
 				}
 			}
+			def hostOnly = poolServer.configMap?.hostOnly ?: false
+			def nativeDns = poolServer.configMap?.nativeDns ?: false
 			def body
-			def networkView = networkPool.externalId.tokenize('/')[3]
+			def networkView = URLDecoder.decode(networkPool.externalId.tokenize('/')[3])
 			if (networkPool.type.code == 'infoblox') {
 				if(poolServer.serviceMode == 'dhcp' && networkPoolIp.macAddress) {
 					body = [
-						name: shortHostname,
+						name: hostOnly ? hostname : shortHostname,
 						network_view: networkView,
 						ipv4addrs: [[configure_for_dhcp: true, mac: networkPoolIp.macAddress, ipv4addr: networkPoolIp.ipAddress ?: "func:nextavailableip:${networkPool.externalId}".toString()]],
-						configure_for_dns: false
+						configure_for_dns: nativeDns ? true : false
 					]
 				} else {
 					body = [
-						name: shortHostname,
+						name: hostOnly ? hostname : shortHostname,
 						network_view: networkView,
 						ipv4addrs: [[configure_for_dhcp: false, ipv4addr: networkPoolIp.ipAddress ?: "func:nextavailableip:${networkPool.externalId}".toString()]],
-						configure_for_dns: false
+						configure_for_dns: nativeDns ? true : false
 					]
 				}
 			} else {
 				if(poolServer.serviceMode == 'dhcp' && networkPoolIp.macAddress) {
 					body = [
-						name: shortHostname,
+						name: hostOnly ? hostname : shortHostname,
 						network_view: networkView,
 						ipv6addrs: [[configure_for_dhcp: true, mac: networkPoolIp.macAddress, ipv6addr: networkPoolIp.ipAddress ?: "func:nextavailableip:${networkPool.externalId}".toString()]],
-						configure_for_dns: false
+						configure_for_dns: nativeDns ? true : false
 					]
 				} else {
 					body = [
-						name: shortHostname,
+						name: hostOnly ? hostname : shortHostname,
 						network_view: networkView,
 						ipv6addrs: [[configure_for_dhcp: false, ipv6addr: networkPoolIp.ipAddress ?: "func:nextavailableip:${networkPool.externalId}".toString()]],
-						configure_for_dns: false
+						configure_for_dns: nativeDns ? true : false
 					]
 				}
 			}
@@ -858,7 +868,7 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 				}
 
 
-				if (createARecord && domain) {
+				if (createARecord && domain && !hostOnly && !nativeDns) {
 					def aRecordRef
 					def domainRecord
 					def ptrName
@@ -970,6 +980,7 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 	@Override // FIXME: This method signature is different than infobloxnps
 	ServiceResponse updateHostRecord(NetworkPoolServer poolServer, NetworkPool networkPool, NetworkPoolIp networkPoolIp) {
 		HttpApiClient client = new HttpApiClient()
+		client.networkProxy = morpheusContext.services.setting.getGlobalNetworkProxy()
 		def serviceUrl = cleanServiceUrl(poolServer.serviceUrl)
 		try {
 
@@ -1000,6 +1011,7 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 //	@Override
 	ServiceResponse deleteHostRecord(NetworkPool networkPool, NetworkPoolIp poolIp, Boolean deleteAssociatedRecords) {
 		HttpApiClient client = new HttpApiClient();
+		client.networkProxy = morpheusContext.services.setting.getGlobalNetworkProxy()
 		def poolServer = morpheus.network.getPoolServerById(networkPool.poolServer.id).blockingGet()
 		try {
 			if(poolIp.externalId) {
@@ -1324,7 +1336,7 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 	ServiceResponse listHostRecords(HttpApiClient client, NetworkPoolServer poolServer, NetworkPool networkPool, Map opts) {
 		def rtn = new ServiceResponse()
 		rtn.data = []
-		def networkView = networkPool.externalId.tokenize('/')[3]
+		def networkView = URLDecoder.decode(networkPool.externalId.tokenize('/')[3])
 		def serviceUrl = cleanServiceUrl(poolServer.serviceUrl) //ipv4address?network=10.10.10.0/24
 		def apiPath
 		if (networkPool.type.code == 'infoblox') {
@@ -1410,18 +1422,19 @@ class InfobloxProvider implements IPAMProvider, DNSProvider {
 		return [
 				new OptionType(code: 'infoblox.serviceUrl', name: 'Service URL', inputType: OptionType.InputType.TEXT, fieldName: 'serviceUrl', fieldLabel: 'API Url', fieldContext: 'domain', placeHolder: 'https://x.x.x.x/wapi/v2.2.1', helpBlock: 'Warning! Using HTTP URLS are insecure and not recommended.', displayOrder: 0, required:true),
 				new OptionType(code: 'infoblox.credentials', name: 'Credentials', inputType: OptionType.InputType.CREDENTIAL, fieldName: 'type', fieldLabel: 'Credentials', fieldContext: 'credential', required: true, displayOrder: 1, defaultValue: 'local',optionSource: 'credentials',config: '{"credentialTypes":["username-password"]}'),
-
 				new OptionType(code: 'infoblox.serviceUsername', name: 'Service Username', inputType: OptionType.InputType.TEXT, fieldName: 'serviceUsername', fieldLabel: 'Username', fieldContext: 'domain', displayOrder: 2,localCredential: true, required: true),
 				new OptionType(code: 'infoblox.servicePassword', name: 'Service Password', inputType: OptionType.InputType.PASSWORD, fieldName: 'servicePassword', fieldLabel: 'Password', fieldContext: 'domain', displayOrder: 3,localCredential: true, required: true),
 				new OptionType(code: 'infoblox.throttleRate', name: 'Throttle Rate', inputType: OptionType.InputType.NUMBER, defaultValue: 0, fieldName: 'serviceThrottleRate', fieldLabel: 'Throttle Rate', fieldContext: 'domain', displayOrder: 4),
 				new OptionType(code: 'infoblox.ignoreSsl', name: 'Ignore SSL', inputType: OptionType.InputType.CHECKBOX, defaultValue: 0, fieldName: 'ignoreSsl', fieldLabel: 'Disable SSL SNI Verification', fieldContext: 'domain', displayOrder: 5),
 				new OptionType(code: 'infoblox.inventoryExisting', name: 'Inventory Existing', inputType: OptionType.InputType.CHECKBOX, defaultValue: 0, fieldName: 'inventoryExisting', fieldLabel: 'Inventory Existing', fieldContext: 'config', displayOrder: 6),
-				new OptionType(code: 'infoblox.dnsView', name: 'DNS view', inputType: OptionType.InputType.TEXT, fieldName: 'dnsView', fieldLabel: 'DNS view', fieldContext: 'config', displayOrder: 7, helpText: 'Specifies the DNS view in which the zone exists.'),
-				new OptionType(code: 'infoblox.networkFilter', name: 'Network Filter', inputType: OptionType.InputType.TEXT, fieldName: 'networkFilter', fieldLabel: 'Network Filter', fieldContext: 'domain', displayOrder: 8),
-				new OptionType(code: 'infoblox.zoneFilter', name: 'Zone Filter', inputType: OptionType.InputType.TEXT, fieldName: 'zoneFilter', fieldLabel: 'Zone Filter', fieldContext: 'domain', displayOrder: 9),
-				new OptionType(code: 'infoblox.tenantMatch', name: 'Tenant Match Attribute', inputType: OptionType.InputType.TEXT, fieldName: 'tenantMatch', fieldLabel: 'Tenant Match Attribute', fieldContext: 'domain', displayOrder: 10),
-				new OptionType(code: 'infoblox.ipMode', name: 'IP Mode', inputType: OptionType.InputType.SELECT, fieldName: 'serviceMode', fieldLabel: 'IP Mode', fieldContext: 'domain', optionSource: 'infobloxModeTypeList' , displayOrder: 11),
-				new OptionType(code: 'infoblox.extraAttributes', name: 'Extra Attributes', inputType: OptionType.InputType.TEXTAREA, fieldName: 'extraAttributes', fieldLabel: 'Extra Attributes', fieldContext: 'config', displayOrder: 12, helpText: "Accepts a JSON input of custom attributes that can be saved on Host Record in Infoblox. These Must be first defined as extra attributes in Infoblox and values can be injected for the user creating the record and the date of assignment. The available injectable attributes are: userId, username, and dateCreated. They can be injected with <%=%>.")
+				new OptionType(code: 'infoblox.hostOnly', name: 'Host Only', inputType: OptionType.InputType.CHECKBOX, defaultValue: 0, fieldName: 'hostOnly', fieldLabel: 'Host Only', fieldContext: 'config', displayOrder: 7, helpText: "Will only create a host record"),
+				new OptionType(code: 'infoblox.nativeDns', name: 'Alternate DNS Method', inputType: OptionType.InputType.CHECKBOX, defaultValue: 0, fieldName: 'nativeDns', fieldLabel: 'Alternate DNS Method', fieldContext: 'config', displayOrder: 8, helpText: "Attempts the configure_for_dns host flag"),
+				new OptionType(code: 'infoblox.dnsView', name: 'DNS view', inputType: OptionType.InputType.TEXT, fieldName: 'dnsView', fieldLabel: 'DNS view', fieldContext: 'config', displayOrder: 9, helpText: 'Specifies the DNS view in which the zone exists.'),
+				new OptionType(code: 'infoblox.networkFilter', name: 'Network Filter', inputType: OptionType.InputType.TEXT, fieldName: 'networkFilter', fieldLabel: 'Network Filter', fieldContext: 'domain', displayOrder: 10),
+				new OptionType(code: 'infoblox.zoneFilter', name: 'Zone Filter', inputType: OptionType.InputType.TEXT, fieldName: 'zoneFilter', fieldLabel: 'Zone Filter', fieldContext: 'domain', displayOrder: 11),
+				new OptionType(code: 'infoblox.tenantMatch', name: 'Tenant Match Attribute', inputType: OptionType.InputType.TEXT, fieldName: 'tenantMatch', fieldLabel: 'Tenant Match Attribute', fieldContext: 'domain', displayOrder: 12),
+				new OptionType(code: 'infoblox.ipMode', name: 'IP Mode', inputType: OptionType.InputType.SELECT, fieldName: 'serviceMode', fieldLabel: 'IP Mode', fieldContext: 'domain', optionSource: 'infobloxModeTypeList' , displayOrder: 13),
+				new OptionType(code: 'infoblox.extraAttributes', name: 'Extra Attributes', inputType: OptionType.InputType.TEXTAREA, fieldName: 'extraAttributes', fieldLabel: 'Extra Attributes', fieldContext: 'config', displayOrder: 14, helpText: "Accepts a JSON input of custom attributes that can be saved on Host Record in Infoblox. These Must be first defined as extra attributes in Infoblox and values can be injected for the user creating the record and the date of assignment. The available injectable attributes are: userId, username, and dateCreated. They can be injected with <%=%>.")
 				]
 	}
 
